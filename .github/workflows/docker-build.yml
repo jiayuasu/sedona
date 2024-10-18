@@ -60,7 +60,7 @@ jobs:
           brew install --HEAD colima
           brew install docker
           colima delete
-          colima start
+          colima start --arch x86_64
           DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker}
           mkdir -p $DOCKER_CONFIG/cli-plugins
           curl -SL https://github.com/docker/buildx/releases/download/v0.14.1/buildx-v0.14.1.darwin-amd64 -o $DOCKER_CONFIG/cli-plugins/docker-buildx
