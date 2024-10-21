@@ -55,8 +55,7 @@ jobs:
       - name: Setup docker (missing on macOS)
         if: runner.os == 'macos'
         run: |
-          wget  https://raw.githubusercontent.com/Homebrew/homebrew-core/f1a9cf104a9a51779c7a532b658c490f69974839/Formula/q/qemu.rb
-          brew install qemu.rb 2>&1 | tee install.log
+          brew install qemu@9.0.2
           brew install colima
           brew install docker
           colima start
