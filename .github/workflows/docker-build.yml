@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        os: ['ubuntu-latest', 'macos-12']
+        os: ['ubuntu-latest', 'macos-13']
         spark: ['3.5.1', '3.4.3', '3.3.4']
         include:
           - spark: 3.5.1
@@ -36,6 +36,11 @@ jobs:
           - spark: 3.3.4
             sedona: 1.6.0
             geotools: 28.2
+        exclude:
+          - os: macos-13
+            spark: 3.4.3
+          - os: macos-13
+            spark: 3.3.4
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -52,11 +57,36 @@ jobs:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
-      - name: Setup docker (missing on macOS)
+      - name: Setup docker (missing on macOS) - install QEMU 9.0.2
         if: runner.os == 'macos'
         run: |
+          wget  https://raw.githubusercontent.com/Homebrew/homebrew-core/f1a9cf104a9a51779c7a532b658c490f69974839/Formula/q/qemu.rb
+          brew install qemu.rb 2>&1
+        continue-on-error: true
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+      - name: Setup docker (missing on macOS) - install Colima and Docker
+        if: runner.os == 'macos'
+        run: |
+          brew install colima
           brew install docker
-          colima start
+          n=0
+          max_retries=3
+          until [ "$n" -ge "$max_retries" ]
+          do
+            colima start || exit_code=$?
+            if [ "$exit_code" -eq 1 ]; then
+              echo "Command failed with exit code 1. Retrying... ($((n+1))/$max_retries)"
+              n=$((n+1))
+              sleep 5
+            else
+              exit $exit_code  # Exit on any code other than 1
+            fi
+          done
+          if [ "$n" -eq "$max_retries" ]; then
+            echo "Max retries reached. Failing the step."
+            exit 1
+          fi
           DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker}
           mkdir -p $DOCKER_CONFIG/cli-plugins
           curl -SL https://github.com/docker/buildx/releases/download/v0.14.1/buildx-v0.14.1.darwin-amd64 -o $DOCKER_CONFIG/cli-plugins/docker-buildx
