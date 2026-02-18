@@ -21,8 +21,18 @@ package org.apache.sedona.common;
 import static org.junit.Assert.*;
 import static org.junit.Assume.assumeTrue;
 
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.Test;
 import org.locationtech.jts.geom.*;
 import org.locationtech.jts.io.WKTReader;
@@ -572,5 +582,214 @@ public class FunctionsProj4Test extends TestBase {
     assertNotNull(backToWgs84);
     assertEquals(original.getCoordinate().x, backToWgs84.getCoordinate().x, 1e-9);
     assertEquals(original.getCoordinate().y, backToWgs84.getCoordinate().y, 1e-9);
+  }
+
+  // ==================== URL CRS Provider Registration Tests ====================
+
+  @Test
+  public void testRegisterUrlCrsProviderNoOpOnNullOrEmpty() {
+    // null and empty baseUrl should be no-ops, not throw
+    FunctionsProj4.registerUrlCrsProvider(null, "/epsg/{code}.json", "projjson");
+    FunctionsProj4.registerUrlCrsProvider("", "/epsg/{code}.json", "projjson");
+    // No provider should have been registered
+    assertNull("No provider should be registered for null/empty baseUrl", findUrlCrsProvider());
+  }
+
+  @Test
+  public void testRegisterUrlCrsProviderRegistersAndIsIdempotent() {
+    String testUrl = "https://test-crs-server.example.com";
+    try {
+      FunctionsProj4.registerUrlCrsProvider(testUrl, "/epsg/{code}.json", "projjson");
+      assertNotNull("sedona-url-crs provider should be registered", findUrlCrsProvider());
+      int countBefore = countProvidersByName("sedona-url-crs");
+
+      // Second call with same config — should not add a duplicate
+      FunctionsProj4.registerUrlCrsProvider(testUrl, "/epsg/{code}.json", "projjson");
+      assertEquals(
+          "Provider should not be duplicated", countBefore, countProvidersByName("sedona-url-crs"));
+    } finally {
+      FunctionsProj4.resetUrlCrsProviderForTest();
+    }
+  }
+
+  @Test
+  public void testRegisterUrlCrsProviderReRegistersOnConfigChange() {
+    try {
+      FunctionsProj4.registerUrlCrsProvider(
+          "https://server-a.example.com", "/epsg/{code}.json", "projjson");
+      assertEquals(
+          org.datasyslab.proj4sedona.defs.CRSResult.Format.PROJJSON,
+          findUrlCrsProvider().getFormat());
+
+      // Change config — should re-register with new settings
+      FunctionsProj4.registerUrlCrsProvider(
+          "https://server-b.example.com", "/epsg/{code}.json", "wkt2");
+      assertEquals(
+          org.datasyslab.proj4sedona.defs.CRSResult.Format.WKT2, findUrlCrsProvider().getFormat());
+    } finally {
+      FunctionsProj4.resetUrlCrsProviderForTest();
+    }
+  }
+
+  @Test
+  public void testParseCrsFormatAllMappings() {
+    // Verify all valid format strings map to the correct enum
+    Object[][] cases = {
+      {"projjson", org.datasyslab.proj4sedona.defs.CRSResult.Format.PROJJSON},
+      {"proj", org.datasyslab.proj4sedona.defs.CRSResult.Format.PROJ4},
+      {"wkt1", org.datasyslab.proj4sedona.defs.CRSResult.Format.WKT1},
+      {"wkt2", org.datasyslab.proj4sedona.defs.CRSResult.Format.WKT2},
+    };
+    for (Object[] c : cases) {
+      try {
+        FunctionsProj4.registerUrlCrsProvider(
+            "https://test.example.com", "/epsg/{code}", (String) c[0]);
+        assertEquals("Format '" + c[0] + "'", c[1], findUrlCrsProvider().getFormat());
+      } finally {
+        FunctionsProj4.resetUrlCrsProviderForTest();
+      }
+    }
+  }
+
+  @Test
+  public void testParseCrsFormatDefaultsAndCaseInsensitive() {
+    // null, empty, unknown, and uppercase should all default to / map to PROJJSON
+    String[] inputs = {null, "", "unknown-format", "PROJJSON", "ProjJson"};
+    for (String input : inputs) {
+      try {
+        FunctionsProj4.registerUrlCrsProvider("https://test.example.com", "/epsg/{code}", input);
+        assertEquals(
+            "Format input '" + input + "' should resolve to PROJJSON",
+            org.datasyslab.proj4sedona.defs.CRSResult.Format.PROJJSON,
+            findUrlCrsProvider().getFormat());
+      } finally {
+        // Use the test reset so registeredUrlCrsConfig is also cleared
+        FunctionsProj4.resetUrlCrsProviderForTest();
+      }
+    }
+  }
+
+  @Test
+  public void testTransformWithLocalUrlCrsProvider() throws Exception {
+    // Serve a deliberately wrong CRS definition for a fake EPSG code (990001)
+    // that no built-in provider knows. The definition is a Mercator projection
+    // with absurd false easting/northing (+x_0=10000000 +y_0=20000000).
+    // If the transform succeeds with these shifted coordinates, the URL provider
+    // resolved the CRS. If it didn't work, the transform would fail entirely
+    // because no built-in provider knows EPSG:990001.
+    AtomicInteger requestCount = new AtomicInteger(0);
+    HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+    int port = server.getAddress().getPort();
+
+    // Web Mercator with intentional 10M/20M false easting/northing
+    String weirdMercator =
+        "+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0"
+            + " +x_0=10000000 +y_0=20000000 +k=1 +units=m +no_defs";
+
+    server.createContext(
+        "/epsg/",
+        exchange -> {
+          String path = exchange.getRequestURI().getPath();
+          if (path.contains("990001")) {
+            requestCount.incrementAndGet();
+            byte[] body = weirdMercator.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.getResponseBody().close();
+          } else {
+            // 404 for everything else — built-in providers handle known codes
+            exchange.sendResponseHeaders(404, -1);
+            exchange.getResponseBody().close();
+          }
+        });
+    server.start();
+
+    try {
+      FunctionsProj4.registerUrlCrsProvider(
+          "http://localhost:" + port, "/epsg/{code}.json", "proj");
+
+      Point point = GEOMETRY_FACTORY.createPoint(new Coordinate(-122.4194, 37.7749));
+      Geometry result = FunctionsProj4.transform(point, "EPSG:4326", "EPSG:990001");
+
+      assertNotNull("Transform to fake EPSG:990001 should succeed via URL provider", result);
+      assertEquals(990001, result.getSRID());
+      // Standard Web Mercator: x = -13627665.27, y = 4547675.35
+      // Our weird definition adds +x_0=10000000, +y_0=20000000
+      assertEquals(-3627665.27, result.getCoordinate().x, 1.0);
+      assertEquals(24547675.35, result.getCoordinate().y, 1.0);
+      assertTrue("Local HTTP server should have been hit", requestCount.get() > 0);
+    } finally {
+      server.stop(0);
+      FunctionsProj4.resetUrlCrsProviderForTest();
+    }
+  }
+
+  @Test
+  public void testRegisterUrlCrsProviderConcurrentThreadSafety() throws Exception {
+    // Verify that concurrent calls to registerUrlCrsProvider do not produce
+    // duplicate providers or corrupt the registry. This exercises the
+    // synchronized double-checked locking path.
+    final int threadCount = 16;
+    final String testUrl = "https://concurrent-test.example.com";
+    final String pathTemplate = "/epsg/{code}.json";
+    final String format = "projjson";
+
+    ExecutorService pool = Executors.newFixedThreadPool(threadCount);
+    CyclicBarrier barrier = new CyclicBarrier(threadCount);
+
+    try {
+      List<Future<?>> futures = new ArrayList<>();
+      for (int i = 0; i < threadCount; i++) {
+        futures.add(
+            pool.submit(
+                () -> {
+                  try {
+                    // All threads wait at the barrier then race into registration
+                    barrier.await();
+                    FunctionsProj4.registerUrlCrsProvider(testUrl, pathTemplate, format);
+                  } catch (Exception e) {
+                    throw new RuntimeException(e);
+                  }
+                }));
+      }
+
+      // Wait for all threads to complete and propagate any exceptions
+      for (Future<?> f : futures) {
+        f.get();
+      }
+
+      // After all concurrent registrations, there should be exactly 1 provider
+      assertEquals(
+          "Concurrent registration must produce exactly 1 provider",
+          1,
+          countProvidersByName("sedona-url-crs"));
+    } finally {
+      pool.shutdown();
+      FunctionsProj4.resetUrlCrsProviderForTest();
+    }
+  }
+
+  // Helper: count providers with a given name
+  private int countProvidersByName(String name) {
+    int count = 0;
+    for (org.datasyslab.proj4sedona.defs.CRSProvider p :
+        org.datasyslab.proj4sedona.defs.Defs.getProviders()) {
+      if (name.equals(p.getName())) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // Helper: find the registered UrlCRSProvider
+  private org.datasyslab.proj4sedona.defs.UrlCRSProvider findUrlCrsProvider() {
+    for (org.datasyslab.proj4sedona.defs.CRSProvider p :
+        org.datasyslab.proj4sedona.defs.Defs.getProviders()) {
+      if ("sedona-url-crs".equals(p.getName())
+          && p instanceof org.datasyslab.proj4sedona.defs.UrlCRSProvider) {
+        return (org.datasyslab.proj4sedona.defs.UrlCRSProvider) p;
+      }
+    }
+    return null;
   }
 }
