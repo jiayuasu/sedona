@@ -108,6 +108,7 @@ class GeoParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
 
   private var geoParquetVersion: Option[String] = None
   private var defaultGeoParquetCrs: Option[JValue] = None
+  private var userExplicitlySetDefaultCrs: Boolean = false
   private val geoParquetColumnCrsMap: mutable.Map[String, Option[JValue]] = mutable.Map.empty
   private val geoParquetColumnCoveringMap: mutable.Map[String, Covering] = mutable.Map.empty
   private val generatedCoveringColumnOrdinals: mutable.Map[Int, Int] = mutable.Map.empty
@@ -156,11 +157,16 @@ class GeoParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
     }
     defaultGeoParquetCrs = configuration.get(GEOPARQUET_CRS_KEY) match {
       case null =>
-        // If no CRS is specified, we write null to the crs metadata field. This is for compatibility with
-        // geopandas 0.10.0 and earlier versions, which requires crs field to be present.
+        // If no CRS is specified, we default to deriving CRS from the geometry SRID in finalizeWrite.
+        // This JNull value is used as a fallback when SRID is 0 or SRID-to-PROJJSON conversion fails,
+        // maintaining compatibility with geopandas 0.10.0 and earlier versions, which require a crs field.
         Some(org.json4s.JNull)
-      case "" => None
-      case crs: String => Some(parse(crs))
+      case "" =>
+        userExplicitlySetDefaultCrs = true
+        None
+      case crs: String =>
+        userExplicitlySetDefaultCrs = true
+        Some(parse(crs))
     }
     geometryColumnInfoMap.keys.map(schema(_).name).foreach { name =>
       Option(configuration.get(GEOPARQUET_CRS_KEY + "." + name)).foreach {
@@ -246,7 +252,21 @@ class GeoParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
             columnInfo.bbox.maxX,
             columnInfo.bbox.maxY)
         } else Seq(0.0, 0.0, 0.0, 0.0)
-        val crs = geoParquetColumnCrsMap.getOrElse(columnName, defaultGeoParquetCrs)
+        val crs = geoParquetColumnCrsMap.getOrElse(
+          columnName, {
+            if (!userExplicitlySetDefaultCrs) {
+              // No explicit CRS option was provided; try to derive from geometry SRID.
+              // For SRID 4326 (OGC:CRS84), omit CRS entirely per GeoParquet spec default.
+              columnInfo.observedSrid match {
+                case Some(srid) if srid == GeoParquetMetaData.DEFAULT_SRID => None
+                case Some(srid) if srid > 0 =>
+                  GeoParquetMetaData.sridToProjJson(srid).orElse(defaultGeoParquetCrs)
+                case _ => defaultGeoParquetCrs
+              }
+            } else {
+              defaultGeoParquetCrs
+            }
+          })
         val covering = geoParquetColumnCoveringMap.get(columnName)
         columnName -> GeometryFieldMetaData("WKB", geometryTypes, bbox, crs, covering)
       }.toMap
@@ -712,6 +732,22 @@ object GeoParquetWriteSupport {
     // that are present in the column.
     val seenGeometryTypes: mutable.Set[String] = mutable.Set.empty
 
+    // Track SRIDs seen in geometry values. A consistent SRID can be used to
+    // auto-generate CRS (projjson) metadata when no explicit CRS is provided:
+    // SRID 4326 results in omitted CRS (GeoParquet default), positive non-4326
+    // SRIDs generate PROJJSON, and SRID 0 or mixed SRIDs result in null CRS.
+    private var _srid: Int = -1 // -1 = no geometries seen yet
+    private var _mixedSrids: Boolean = false
+
+    /**
+     * Returns the observed SRID if all geometries had the same SRID, or None if no geometries
+     * were seen or if mixed SRIDs were encountered.
+     */
+    def observedSrid: Option[Int] = {
+      if (_mixedSrids || _srid == -1) None
+      else Some(_srid)
+    }
+
     def update(geom: Geometry): Unit = {
       bbox.update(geom)
       // In case of 3D geometries, a " Z" suffix gets added (e.g. ["Point Z"]).
@@ -721,6 +757,16 @@ object GeoParquetWriteSupport {
       }
       val geometryType = if (!hasZ) geom.getGeometryType else geom.getGeometryType + " Z"
       seenGeometryTypes.add(geometryType)
+
+      // Track SRID consistency across all geometries in this column
+      if (!_mixedSrids) {
+        val geomSrid = geom.getSRID
+        if (_srid == -1) {
+          _srid = geomSrid
+        } else if (_srid != geomSrid) {
+          _mixedSrids = true
+        }
+      }
     }
   }
 
