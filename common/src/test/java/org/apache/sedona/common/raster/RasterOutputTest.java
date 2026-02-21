@@ -23,6 +23,7 @@ import static org.junit.Assert.*;
 import java.io.File;
 import java.io.IOException;
 import java.net.URLConnection;
+import org.apache.sedona.common.raster.cog.CogOptions;
 import org.geotools.api.referencing.FactoryException;
 import org.geotools.coverage.grid.GridCoverage2D;
 import org.junit.Test;
@@ -255,12 +256,12 @@ public class RasterOutputTest extends RasterTestBase {
     }
   }
 
-  // ---- RS_AsCOG overload tests ----
+  // ---- RS_AsCOG / asCloudOptimizedGeoTiff tests ----
 
   @Test
   public void testAsCOGDefaults() throws IOException {
     GridCoverage2D raster = rasterFromGeoTiff(resourceFolder + "raster/test1.tiff");
-    byte[] cogBytes = RasterOutputs.asCOG(raster);
+    byte[] cogBytes = RasterOutputs.asCloudOptimizedGeoTiff(raster, CogOptions.defaults());
     assertNotNull(cogBytes);
     assertTrue(cogBytes.length > 0);
     // Verify it is a valid TIFF (starts with II or MM)
@@ -271,7 +272,9 @@ public class RasterOutputTest extends RasterTestBase {
   @Test
   public void testAsCOGRoundTrip() throws IOException {
     GridCoverage2D original = rasterFromGeoTiff(resourceFolder + "raster/test1.tiff");
-    byte[] cogBytes = RasterOutputs.asCOG(original, "LZW", 256);
+    byte[] cogBytes =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            original, CogOptions.builder().compression("LZW").tileSize(256).build());
     // Read COG bytes back as a raster via GeoTiff reader
     GridCoverage2D roundTripped = RasterConstructors.fromGeoTiff(cogBytes);
     assertNotNull(roundTripped);
@@ -289,8 +292,12 @@ public class RasterOutputTest extends RasterTestBase {
   @Test
   public void testAsCOGWithCompression() throws IOException {
     GridCoverage2D raster = rasterFromGeoTiff(resourceFolder + "raster/test1.tiff");
-    byte[] cogLZW = RasterOutputs.asCOG(raster, "LZW");
-    byte[] cogDeflate = RasterOutputs.asCOG(raster, "Deflate");
+    byte[] cogLZW =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster, CogOptions.builder().compression("LZW").build());
+    byte[] cogDeflate =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster, CogOptions.builder().compression("Deflate").build());
     assertNotNull(cogLZW);
     assertNotNull(cogDeflate);
     assertTrue(cogLZW.length > 0);
@@ -302,8 +309,12 @@ public class RasterOutputTest extends RasterTestBase {
   @Test
   public void testAsCOGWithCompressionAndTileSize() throws IOException {
     GridCoverage2D raster = rasterFromGeoTiff(resourceFolder + "raster/test1.tiff");
-    byte[] cog256 = RasterOutputs.asCOG(raster, "Deflate", 256);
-    byte[] cog512 = RasterOutputs.asCOG(raster, "Deflate", 512);
+    byte[] cog256 =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster, CogOptions.builder().compression("Deflate").tileSize(256).build());
+    byte[] cog512 =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster, CogOptions.builder().compression("Deflate").tileSize(512).build());
     assertNotNull(cog256);
     assertNotNull(cog512);
     assertTrue(cog256.length > 0);
@@ -313,8 +324,22 @@ public class RasterOutputTest extends RasterTestBase {
   @Test
   public void testAsCOGWithCompressionTileSizeAndQuality() throws IOException {
     GridCoverage2D raster = rasterFromGeoTiff(resourceFolder + "raster/test1.tiff");
-    byte[] cogHighQ = RasterOutputs.asCOG(raster, "Deflate", 256, 1.0);
-    byte[] cogLowQ = RasterOutputs.asCOG(raster, "Deflate", 256, 0.1);
+    byte[] cogHighQ =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster,
+            CogOptions.builder()
+                .compression("Deflate")
+                .tileSize(256)
+                .compressionQuality(1.0)
+                .build());
+    byte[] cogLowQ =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster,
+            CogOptions.builder()
+                .compression("Deflate")
+                .tileSize(256)
+                .compressionQuality(0.1)
+                .build());
     assertNotNull(cogHighQ);
     assertNotNull(cogLowQ);
     assertTrue(cogHighQ.length > 0);
@@ -324,7 +349,15 @@ public class RasterOutputTest extends RasterTestBase {
   @Test
   public void testAsCOGWithResampling() throws IOException {
     GridCoverage2D raster = rasterFromGeoTiff(resourceFolder + "raster/test1.tiff");
-    byte[] cog = RasterOutputs.asCOG(raster, "Deflate", 256, 0.2, "Bilinear");
+    byte[] cog =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster,
+            CogOptions.builder()
+                .compression("Deflate")
+                .tileSize(256)
+                .compressionQuality(0.2)
+                .resampling("Bilinear")
+                .build());
     assertNotNull(cog);
     assertTrue(cog.length > 0);
   }
@@ -332,7 +365,16 @@ public class RasterOutputTest extends RasterTestBase {
   @Test
   public void testAsCOGAllArgs() throws IOException {
     GridCoverage2D raster = rasterFromGeoTiff(resourceFolder + "raster/test1.tiff");
-    byte[] cog = RasterOutputs.asCOG(raster, "LZW", 256, 0.5, "Nearest", 2);
+    byte[] cog =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster,
+            CogOptions.builder()
+                .compression("LZW")
+                .tileSize(256)
+                .compressionQuality(0.5)
+                .resampling("Nearest")
+                .overviewCount(2)
+                .build());
     assertNotNull(cog);
     assertTrue(cog.length > 0);
   }
@@ -341,15 +383,35 @@ public class RasterOutputTest extends RasterTestBase {
   public void testAsCOGCaseInsensitive() throws IOException {
     GridCoverage2D raster = rasterFromGeoTiff(resourceFolder + "raster/test1.tiff");
     // compression and resampling should be case-insensitive
-    byte[] cog = RasterOutputs.asCOG(raster, "lzw", 256, 0.5, "bilinear", 2);
+    byte[] cog =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster,
+            CogOptions.builder()
+                .compression("lzw")
+                .tileSize(256)
+                .compressionQuality(0.5)
+                .resampling("bilinear")
+                .overviewCount(2)
+                .build());
     assertNotNull(cog);
     assertTrue(cog.length > 0);
     // uppercase
-    byte[] cog2 = RasterOutputs.asCOG(raster, "DEFLATE", 256, 0.5, "NEAREST", 2);
+    byte[] cog2 =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster,
+            CogOptions.builder()
+                .compression("DEFLATE")
+                .tileSize(256)
+                .compressionQuality(0.5)
+                .resampling("NEAREST")
+                .overviewCount(2)
+                .build());
     assertNotNull(cog2);
     assertTrue(cog2.length > 0);
     // mixed case: packbits
-    byte[] cog3 = RasterOutputs.asCOG(raster, "packbits");
+    byte[] cog3 =
+        RasterOutputs.asCloudOptimizedGeoTiff(
+            raster, CogOptions.builder().compression("packbits").build());
     assertNotNull(cog3);
     assertTrue(cog3.length > 0);
   }

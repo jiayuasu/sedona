@@ -89,68 +89,6 @@ public class RasterOutputs {
     return asGeoTiff(raster, null, -1);
   }
 
-  // ---- RS_AsCOG positional overloads ----
-
-  /** RS_AsCOG(raster) — all defaults. */
-  public static byte[] asCOG(GridCoverage2D raster) {
-    return asCloudOptimizedGeoTiff(raster, CogOptions.defaults());
-  }
-
-  /** RS_AsCOG(raster, compression) */
-  public static byte[] asCOG(GridCoverage2D raster, String compression) {
-    return asCloudOptimizedGeoTiff(raster, CogOptions.builder().compression(compression).build());
-  }
-
-  /** RS_AsCOG(raster, compression, tileSize) */
-  public static byte[] asCOG(GridCoverage2D raster, String compression, int tileSize) {
-    return asCloudOptimizedGeoTiff(
-        raster, CogOptions.builder().compression(compression).tileSize(tileSize).build());
-  }
-
-  /** RS_AsCOG(raster, compression, tileSize, quality) */
-  public static byte[] asCOG(
-      GridCoverage2D raster, String compression, int tileSize, double quality) {
-    return asCloudOptimizedGeoTiff(
-        raster,
-        CogOptions.builder()
-            .compression(compression)
-            .tileSize(tileSize)
-            .compressionQuality(quality)
-            .build());
-  }
-
-  /** RS_AsCOG(raster, compression, tileSize, quality, resampling) */
-  public static byte[] asCOG(
-      GridCoverage2D raster, String compression, int tileSize, double quality, String resampling) {
-    return asCloudOptimizedGeoTiff(
-        raster,
-        CogOptions.builder()
-            .compression(compression)
-            .tileSize(tileSize)
-            .compressionQuality(quality)
-            .resampling(resampling)
-            .build());
-  }
-
-  /** RS_AsCOG(raster, compression, tileSize, quality, resampling, overviewCount) */
-  public static byte[] asCOG(
-      GridCoverage2D raster,
-      String compression,
-      int tileSize,
-      double quality,
-      String resampling,
-      int overviewCount) {
-    return asCloudOptimizedGeoTiff(
-        raster,
-        CogOptions.builder()
-            .compression(compression)
-            .tileSize(tileSize)
-            .compressionQuality(quality)
-            .resampling(resampling)
-            .overviewCount(overviewCount)
-            .build());
-  }
-
   /**
    * Creates a Cloud Optimized GeoTIFF (COG) byte array from the given raster. The COG format
    * arranges tiles and overviews in an order optimized for HTTP range-request based access,
