@@ -1159,6 +1159,17 @@ class rasteralgebraTest extends TestBaseScala with BeforeAndAfter with GivenWhen
       assert(cogBytes.length > 0)
     }
 
+    it("Passed RS_AsCOG case-insensitive args") {
+      val df = sparkSession.read.format("binaryFile").load(resourceFolder + "raster/test1.tiff")
+      val cogBytes = df
+        .selectExpr("RS_FromGeoTiff(content) as raster")
+        .selectExpr("RS_AsCOG(raster, 'lzw', 256, 0.5, 'BILINEAR', 2) as cog")
+        .first()
+        .getAs[Array[Byte]]("cog")
+      assert(cogBytes != null)
+      assert(cogBytes.length > 0)
+    }
+
     it("Passed RS_AsArcGrid") {
       val df = sparkSession.read.format("binaryFile").load(resourceFolder + "raster_asc/*")
       val resultRaw = df.selectExpr("RS_FromArcInfoAsciiGrid(content) as raster").first().get(0)

@@ -336,4 +336,21 @@ public class RasterOutputTest extends RasterTestBase {
     assertNotNull(cog);
     assertTrue(cog.length > 0);
   }
+
+  @Test
+  public void testAsCOGCaseInsensitive() throws IOException {
+    GridCoverage2D raster = rasterFromGeoTiff(resourceFolder + "raster/test1.tiff");
+    // compression and resampling should be case-insensitive
+    byte[] cog = RasterOutputs.asCOG(raster, "lzw", 256, 0.5, "bilinear", 2);
+    assertNotNull(cog);
+    assertTrue(cog.length > 0);
+    // uppercase
+    byte[] cog2 = RasterOutputs.asCOG(raster, "DEFLATE", 256, 0.5, "NEAREST", 2);
+    assertNotNull(cog2);
+    assertTrue(cog2.length > 0);
+    // mixed case: packbits
+    byte[] cog3 = RasterOutputs.asCOG(raster, "packbits");
+    assertNotNull(cog3);
+    assertTrue(cog3.length > 0);
+  }
 }

@@ -20,7 +20,6 @@ package org.apache.sedona.common.raster.cog;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * Options for Cloud Optimized GeoTIFF (COG) generation.
@@ -206,7 +205,9 @@ public final class CogOptions {
       if (compression == null || compression.isEmpty()) {
         throw new IllegalArgumentException("compression must not be null or empty");
       }
-      if (!VALID_COMPRESSION.contains(compression)) {
+      // Case-insensitive matching: find the canonical value from the valid list
+      this.compression = matchIgnoreCase(VALID_COMPRESSION, compression);
+      if (this.compression == null) {
         throw new IllegalArgumentException(
             "compression must be one of " + VALID_COMPRESSION + ", got: '" + compression + "'");
       }
@@ -225,9 +226,9 @@ public final class CogOptions {
             "overviewCount must be -1 (auto), 0 (none), or positive, got: " + overviewCount);
       }
 
-      // Normalize resampling to title-case for matching
-      String normalized = normalizeResampling(resampling);
-      if (!VALID_RESAMPLING.contains(normalized)) {
+      // Case-insensitive matching for resampling
+      String normalized = matchIgnoreCase(VALID_RESAMPLING, resampling);
+      if (normalized == null) {
         throw new IllegalArgumentException(
             "resampling must be one of " + VALID_RESAMPLING + ", got: '" + resampling + "'");
       }
@@ -237,15 +238,19 @@ public final class CogOptions {
     }
 
     /**
-     * Normalize the resampling string to title-case (first letter uppercase, rest lowercase) so
-     * callers can pass "nearest", "BILINEAR", etc.
+     * Find the canonical value from a list that matches the input case-insensitively. Returns null
+     * if no match found. This allows callers to pass "lzw", "PACKBITS", "bilinear", etc.
      */
-    private static String normalizeResampling(String value) {
-      if (value == null || value.isEmpty()) {
-        return "Nearest";
+    private static String matchIgnoreCase(List<String> validValues, String input) {
+      if (input == null) {
+        return null;
       }
-      String lower = value.toLowerCase(Locale.ROOT);
-      return Character.toUpperCase(lower.charAt(0)) + lower.substring(1);
+      for (String valid : validValues) {
+        if (valid.equalsIgnoreCase(input)) {
+          return valid;
+        }
+      }
+      return null;
     }
   }
 }

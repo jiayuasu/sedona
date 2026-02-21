@@ -120,13 +120,13 @@ root
 
 Introduction: Returns a binary DataFrame from a Raster DataFrame. Each raster object in the resulting DataFrame is a [Cloud Optimized GeoTIFF](https://www.cogeo.org/) (COG) image in binary format. COG is a GeoTIFF that is internally organized to enable efficient range-read access over HTTP, making it ideal for cloud-hosted raster data.
 
-Possible values for `compression`: `Deflate` (default), `LZW`, `JPEG`, `PackBits`
+Possible values for `compression`: `Deflate` (default), `LZW`, `JPEG`, `PackBits`. Case-insensitive.
 
 `tileSize` must be a power of 2 (e.g., 128, 256, 512). Default value: `256`
 
 Possible values for `quality`: any decimal number between 0 and 1. 0 means maximum compression and 1 means minimum compression. Default value: `0.2`
 
-Possible values for `resampling`: `Nearest` (default), `Bilinear`, `Bicubic`. This controls the resampling algorithm used to build overview levels.
+Possible values for `resampling`: `Nearest` (default), `Bilinear`, `Bicubic`. Case-insensitive. This controls the resampling algorithm used to build overview levels.
 
 `overviewCount` controls the number of overview levels. Use `-1` for automatic (default), `0` for no overviews, or any positive integer for a specific count.
 
