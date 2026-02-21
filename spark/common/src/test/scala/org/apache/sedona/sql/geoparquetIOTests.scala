@@ -572,6 +572,142 @@ class geoparquetIOTests extends TestBaseScala with BeforeAndAfterAll {
       }
     }
 
+    it("GeoParquet save should omit CRS for SRID 4326 per GeoParquet default") {
+      val wktReader = new WKTReader()
+      val geom = wktReader.read("POINT (1 2)")
+      geom.setSRID(4326)
+      val testData = Seq(Row(1, geom))
+      val schema = StructType(
+        Seq(
+          StructField("id", IntegerType, nullable = false),
+          StructField("geometry", GeometryUDT(), nullable = false)))
+      val df = sparkSession.createDataFrame(testData.asJava, schema).repartition(1)
+      val geoParquetSavePath = geoparquetoutputlocation + "/gp_srid_4326_omit_crs.parquet"
+      df.write.format("geoparquet").mode("overwrite").save(geoParquetSavePath)
+      validateGeoParquetMetadata(geoParquetSavePath) { geo =>
+        val crs = geo \ "columns" \ "geometry" \ "crs"
+        // SRID 4326 = OGC:CRS84, the GeoParquet default. CRS field should be omitted.
+        assert(
+          crs == org.json4s.JNothing,
+          s"Expected omitted CRS for SRID 4326 (GeoParquet default), got $crs")
+      }
+      // Round-trip: read back and verify SRID is preserved (omitted CRS -> 4326)
+      val df2 = sparkSession.read.format("geoparquet").load(geoParquetSavePath)
+      val geoms = df2.select("geometry").collect().map(_.getAs[Geometry](0))
+      geoms.foreach { g =>
+        assert(g.getSRID == 4326, s"Expected SRID 4326 after round-trip, got ${g.getSRID}")
+      }
+    }
+
+    it("GeoParquet save should auto-generate projjson from non-default SRID") {
+      val wktReader = new WKTReader()
+      val geom = wktReader.read("POINT (500000 4649776)")
+      geom.setSRID(32632)
+      val testData = Seq(Row(1, geom))
+      val schema = StructType(
+        Seq(
+          StructField("id", IntegerType, nullable = false),
+          StructField("geometry", GeometryUDT(), nullable = false)))
+      val df = sparkSession.createDataFrame(testData.asJava, schema).repartition(1)
+      val geoParquetSavePath = geoparquetoutputlocation + "/gp_auto_crs_from_srid_32632.parquet"
+      df.write.format("geoparquet").mode("overwrite").save(geoParquetSavePath)
+      validateGeoParquetMetadata(geoParquetSavePath) { geo =>
+        implicit val formats: org.json4s.Formats = org.json4s.DefaultFormats
+        val crs = geo \ "columns" \ "geometry" \ "crs"
+        // CRS should be auto-generated from SRID 32632
+        assert(
+          crs.isInstanceOf[org.json4s.JObject],
+          s"Expected JObject for auto-generated CRS, got $crs")
+        val authority = (crs \ "id" \ "authority").extract[String]
+        val code = (crs \ "id" \ "code").extract[Int]
+        assert(authority == "EPSG")
+        assert(code == 32632)
+      }
+      // Round-trip: read back and verify SRID is preserved
+      val df2 = sparkSession.read.format("geoparquet").load(geoParquetSavePath)
+      val geoms = df2.select("geometry").collect().map(_.getAs[Geometry](0))
+      geoms.foreach { g =>
+        assert(g.getSRID == 32632, s"Expected SRID 32632 after round-trip, got ${g.getSRID}")
+      }
+    }
+
+    it("GeoParquet save should keep crs null when geometry SRID is 0") {
+      val wktReader = new WKTReader()
+      val geom = wktReader.read("POINT (1 2)")
+      // SRID defaults to 0
+      assert(geom.getSRID == 0)
+      val testData = Seq(Row(1, geom))
+      val schema = StructType(
+        Seq(
+          StructField("id", IntegerType, nullable = false),
+          StructField("geometry", GeometryUDT(), nullable = false)))
+      val df = sparkSession.createDataFrame(testData.asJava, schema).repartition(1)
+      val geoParquetSavePath = geoparquetoutputlocation + "/gp_srid_zero_crs_null.parquet"
+      df.write.format("geoparquet").mode("overwrite").save(geoParquetSavePath)
+      validateGeoParquetMetadata(geoParquetSavePath) { geo =>
+        val crs = geo \ "columns" \ "geometry" \ "crs"
+        assert(crs == org.json4s.JNull, s"Expected null CRS for SRID 0, got $crs")
+      }
+    }
+
+    it("GeoParquet save should use explicit CRS option over SRID-derived CRS") {
+      val wktReader = new WKTReader()
+      val geom = wktReader.read("POINT (1 2)")
+      geom.setSRID(4326)
+      val testData = Seq(Row(1, geom))
+      val schema = StructType(
+        Seq(
+          StructField("id", IntegerType, nullable = false),
+          StructField("geometry", GeometryUDT(), nullable = false)))
+      val df = sparkSession.createDataFrame(testData.asJava, schema).repartition(1)
+      val geoParquetSavePath =
+        geoparquetoutputlocation + "/gp_explicit_crs_overrides_srid.parquet"
+
+      // Explicitly set CRS to null — should override SRID-derived CRS
+      df.write
+        .format("geoparquet")
+        .option("geoparquet.crs", "null")
+        .mode("overwrite")
+        .save(geoParquetSavePath)
+      validateGeoParquetMetadata(geoParquetSavePath) { geo =>
+        val crs = geo \ "columns" \ "geometry" \ "crs"
+        assert(crs == org.json4s.JNull, s"Expected null CRS when explicitly set, got $crs")
+      }
+
+      // Explicitly omit CRS — should override SRID-derived CRS
+      df.write
+        .format("geoparquet")
+        .option("geoparquet.crs", "")
+        .mode("overwrite")
+        .save(geoParquetSavePath)
+      validateGeoParquetMetadata(geoParquetSavePath) { geo =>
+        val crs = geo \ "columns" \ "geometry" \ "crs"
+        assert(
+          crs == org.json4s.JNothing,
+          s"Expected omitted CRS when explicitly set to empty, got $crs")
+      }
+    }
+
+    it("GeoParquet save should keep crs null for mixed SRIDs in one column") {
+      val wktReader = new WKTReader()
+      val geom1 = wktReader.read("POINT (1 2)")
+      geom1.setSRID(4326)
+      val geom2 = wktReader.read("POINT (3 4)")
+      geom2.setSRID(32632)
+      val testData = Seq(Row(1, geom1), Row(2, geom2))
+      val schema = StructType(
+        Seq(
+          StructField("id", IntegerType, nullable = false),
+          StructField("geometry", GeometryUDT(), nullable = false)))
+      val df = sparkSession.createDataFrame(testData.asJava, schema).repartition(1)
+      val geoParquetSavePath = geoparquetoutputlocation + "/gp_mixed_srid.parquet"
+      df.write.format("geoparquet").mode("overwrite").save(geoParquetSavePath)
+      validateGeoParquetMetadata(geoParquetSavePath) { geo =>
+        val crs = geo \ "columns" \ "geometry" \ "crs"
+        assert(crs == org.json4s.JNull, s"Expected null CRS for mixed SRIDs, got $crs")
+      }
+    }
+
     it("GeoParquet read should set SRID from PROJJSON CRS with EPSG identifier") {
       val df = sparkSession.read.format("geoparquet").load(geoparquetdatalocation4)
       val projjson =

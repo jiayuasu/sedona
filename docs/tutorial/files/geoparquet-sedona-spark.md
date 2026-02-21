@@ -198,14 +198,19 @@ df.write.format("geoparquet")
 
 The value of `geoparquet.crs` and `geoparquet.crs.<column_name>` can be one of the following:
 
-* `"null"`: Explicitly setting `crs` field to `null`. This is the default behavior.
+* `"null"`: Explicitly setting `crs` field to `null`. This is the default behavior when geometry SRID is 0.
 * `""` (empty string): Omit the `crs` field. This implies that the CRS is [OGC:CRS84](https://www.opengis.net/def/crs/OGC/1.3/CRS84) for CRS-aware implementations.
 * `"{...}"` (PROJJSON string): The `crs` field will be set as the PROJJSON object representing the Coordinate Reference System (CRS) of the geometry. You can find the PROJJSON string of a specific CRS from here: https://epsg.io/ (click the JSON option at the bottom of the page). You can also customize your PROJJSON string as needed.
 
-Please note that Sedona currently cannot set/get a projjson string to/from a CRS. Its geoparquet reader will ignore the projjson metadata and you will have to set your CRS via [`ST_SetSRID`](../../api/sql/Function.md#st_setsrid) after reading the file.
-Its geoparquet writer will not leverage the SRID field of a geometry so you will have to always set the `geoparquet.crs` option manually when writing the file, if you want to write a meaningful CRS field.
+### Automatic CRS from SRID
 
-Due to the same reason, Sedona geoparquet reader and writer do NOT check the axis order (lon/lat or lat/lon) and assume they are handled by the users themselves when writing / reading the files. You can always use [`ST_FlipCoordinates`](../../api/sql/Function.md#st_flipcoordinates) to swap the axis order of your geometries.
+When no `geoparquet.crs` option is explicitly provided, Sedona will automatically derive the CRS PROJJSON from the SRID of the geometry column. For example, if all geometries in a column have SRID 4326 (set via [`ST_SetSRID`](../../api/sql/Function.md#st_setsrid)), the writer will automatically produce the PROJJSON for EPSG:4326 in the GeoParquet metadata.
+
+* If the SRID is 0 (the default for geometries without an explicit SRID), the `crs` field will be set to `null`.
+* If geometries in a column have mixed SRIDs, the `crs` field defaults to `null`.
+* If an explicit `geoparquet.crs` or `geoparquet.crs.<column_name>` option is provided, it always takes precedence over the SRID-derived CRS.
+
+Sedona geoparquet reader and writer do NOT check the axis order (lon/lat or lat/lon) and assume they are handled by the users themselves when writing / reading the files. You can always use [`ST_FlipCoordinates`](../../api/sql/Function.md#st_flipcoordinates) to swap the axis order of your geometries.
 
 ## Save GeoParquet with Covering Metadata
 

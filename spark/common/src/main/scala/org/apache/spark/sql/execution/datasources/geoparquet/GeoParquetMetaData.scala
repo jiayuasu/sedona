@@ -22,6 +22,7 @@ import scala.util.control.NonFatal
 
 import org.apache.spark.sql.types.{DoubleType, FloatType, StructType}
 import org.datasyslab.proj4sedona.core.Proj
+import org.datasyslab.proj4sedona.parser.CRSSerializer
 import org.json4s.jackson.JsonMethods.parse
 import org.json4s.jackson.compactJson
 import org.json4s.{DefaultFormats, Extraction, JField, JNothing, JNull, JObject, JValue}
@@ -200,6 +201,33 @@ object GeoParquetMetaData {
         } catch {
           case NonFatal(_) => 0
         }
+    }
+  }
+
+  /**
+   * Convert an SRID to a PROJJSON JValue using proj4sedona.
+   *
+   * The generated PROJJSON includes an `id` field with the EPSG authority and code, which enables
+   * round-trip SRID preservation when reading the GeoParquet file back.
+   *
+   * @param srid
+   *   The SRID to convert (e.g., 4326 for WGS 84).
+   * @return
+   *   Some(JValue) containing the PROJJSON if conversion succeeds, None if the SRID is 0 or
+   *   unknown.
+   */
+  def sridToProjJson(srid: Int): Option[JValue] = {
+    if (srid == 0 || srid == DEFAULT_SRID) return None
+    try {
+      val proj = new Proj("EPSG:" + srid)
+      val projjsonStr = CRSSerializer.toProjJson(proj)
+      if (projjsonStr != null && projjsonStr.nonEmpty) {
+        Some(parse(projjsonStr))
+      } else {
+        None
+      }
+    } catch {
+      case NonFatal(_) => None
     }
   }
 
