@@ -204,7 +204,7 @@ The value of `geoparquet.crs` and `geoparquet.crs.<column_name>` can be one of t
 
 ### Automatic CRS from SRID
 
-When no `geoparquet.crs` option is explicitly provided, Sedona will automatically derive the CRS PROJJSON from the SRID of the geometry column. For example, if all geometries in a column have SRID 4326 (set via [`ST_SetSRID`](../../api/sql/Function.md#st_setsrid)), the writer will automatically produce the PROJJSON for EPSG:4326 in the GeoParquet metadata.
+When no `geoparquet.crs` option is explicitly provided, Sedona will automatically derive the CRS PROJJSON from the SRID of the geometry column. For example, if all geometries in a column have SRID 32632 (set via [`ST_SetSRID`](../../api/sql/Function.md#st_setsrid)), the writer will automatically produce the PROJJSON for EPSG:32632 in the GeoParquet metadata. For SRID 4326, the CRS field is omitted since this is the GeoParquet default (OGC:CRS84).
 
 * If the SRID is 0 (the default for geometries without an explicit SRID), the `crs` field will be set to `null`.
 * If geometries in a column have mixed SRIDs, the `crs` field defaults to `null`.

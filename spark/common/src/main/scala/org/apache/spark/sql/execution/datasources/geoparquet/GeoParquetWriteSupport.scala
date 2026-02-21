@@ -157,8 +157,9 @@ class GeoParquetWriteSupport extends WriteSupport[InternalRow] with Logging {
     }
     defaultGeoParquetCrs = configuration.get(GEOPARQUET_CRS_KEY) match {
       case null =>
-        // If no CRS is specified, we write null to the crs metadata field. This is for compatibility with
-        // geopandas 0.10.0 and earlier versions, which requires crs field to be present.
+        // If no CRS is specified, we default to deriving CRS from the geometry SRID in finalizeWrite.
+        // This JNull value is used as a fallback when SRID is 0 or SRID-to-PROJJSON conversion fails,
+        // maintaining compatibility with geopandas 0.10.0 and earlier versions, which require a crs field.
         Some(org.json4s.JNull)
       case "" =>
         userExplicitlySetDefaultCrs = true
@@ -731,8 +732,10 @@ object GeoParquetWriteSupport {
     // that are present in the column.
     val seenGeometryTypes: mutable.Set[String] = mutable.Set.empty
 
-    // Track SRIDs seen in geometry values. A consistent non-zero SRID can be used
-    // to auto-generate CRS (projjson) metadata when no explicit CRS is provided.
+    // Track SRIDs seen in geometry values. A consistent SRID can be used to
+    // auto-generate CRS (projjson) metadata when no explicit CRS is provided:
+    // SRID 4326 results in omitted CRS (GeoParquet default), positive non-4326
+    // SRIDs generate PROJJSON, and SRID 0 or mixed SRIDs result in null CRS.
     private var _srid: Int = -1 // -1 = no geometries seen yet
     private var _mixedSrids: Boolean = false
 

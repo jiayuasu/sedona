@@ -213,8 +213,8 @@ object GeoParquetMetaData {
    * @param srid
    *   The SRID to convert (e.g., 4326 for WGS 84).
    * @return
-   *   Some(JValue) containing the PROJJSON if conversion succeeds, None if the SRID is 0 or
-   *   unknown.
+   *   Some(JValue) containing the PROJJSON if conversion succeeds, None if the SRID is 0
+   *   (unknown), 4326 (GeoParquet default CRS), or if conversion fails.
    */
   def sridToProjJson(srid: Int): Option[JValue] = {
     if (srid == 0 || srid == DEFAULT_SRID) return None
