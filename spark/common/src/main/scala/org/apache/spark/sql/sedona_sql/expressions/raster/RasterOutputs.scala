@@ -19,16 +19,10 @@
 package org.apache.spark.sql.sedona_sql.expressions.raster
 
 import org.apache.sedona.common.raster.RasterOutputs
-import org.apache.sedona.common.raster.cog.CogOptions
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.{Expression, ImplicitCastInputTypes}
-import org.apache.spark.sql.catalyst.expressions.codegen.CodegenFallback
-import org.apache.spark.sql.sedona_sql.UDT.RasterUDT
+import org.apache.spark.sql.catalyst.expressions.Expression
 import org.apache.spark.sql.sedona_sql.expressions.InferrableFunctionConverter._
 import org.apache.spark.sql.sedona_sql.expressions.InferrableRasterTypes._
 import org.apache.spark.sql.sedona_sql.expressions.InferredExpression
-import org.apache.spark.sql.sedona_sql.expressions.raster.implicits.RasterInputExpressionEnhancer
-import org.apache.spark.sql.types.{AbstractDataType, BinaryType, DataType, DoubleType, IntegerType, StringType}
 
 private[apache] case class RS_AsGeoTiff(inputExpressions: Seq[Expression])
     extends InferredExpression(
@@ -86,55 +80,14 @@ private[apache] case class RS_AsImage(inputExpressions: Seq[Expression])
 }
 
 private[apache] case class RS_AsCOG(inputExpressions: Seq[Expression])
-    extends Expression
-    with CodegenFallback
-    with ImplicitCastInputTypes {
-
-  override def nullable: Boolean = true
-
-  override def dataType: DataType = BinaryType
-
-  override def eval(input: InternalRow): Any = {
-    val raster = inputExpressions(0).toRaster(input)
-    if (raster == null) return null
-
-    val builder = CogOptions.builder()
-    if (inputExpressions.length >= 2) {
-      builder.compression(
-        inputExpressions(1)
-          .eval(input)
-          .asInstanceOf[org.apache.spark.unsafe.types.UTF8String]
-          .toString)
-    }
-    if (inputExpressions.length >= 3) {
-      builder.tileSize(inputExpressions(2).eval(input).asInstanceOf[Int])
-    }
-    if (inputExpressions.length >= 4) {
-      builder.compressionQuality(inputExpressions(3).eval(input).asInstanceOf[Double])
-    }
-    if (inputExpressions.length >= 5) {
-      builder.resampling(
-        inputExpressions(4)
-          .eval(input)
-          .asInstanceOf[org.apache.spark.unsafe.types.UTF8String]
-          .toString)
-    }
-    if (inputExpressions.length >= 6) {
-      builder.overviewCount(inputExpressions(5).eval(input).asInstanceOf[Int])
-    }
-
-    RasterOutputs.asCloudOptimizedGeoTiff(raster, builder.build())
-  }
-
-  override def children: Seq[Expression] = inputExpressions
-
-  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]): RS_AsCOG = {
+    extends InferredExpression(
+      inferrableFunction6(RasterOutputs.asCOG),
+      inferrableFunction5(RasterOutputs.asCOG),
+      inferrableFunction4(RasterOutputs.asCOG),
+      inferrableFunction3(RasterOutputs.asCOG),
+      inferrableFunction2(RasterOutputs.asCOG),
+      inferrableFunction1(RasterOutputs.asCOG)) {
+  protected def withNewChildrenInternal(newChildren: IndexedSeq[Expression]) = {
     copy(inputExpressions = newChildren)
-  }
-
-  override def inputTypes: Seq[AbstractDataType] = {
-    val base = Seq[AbstractDataType](RasterUDT())
-    val optional = Seq(StringType, IntegerType, DoubleType, StringType, IntegerType)
-    base ++ optional.take(inputExpressions.length - 1)
   }
 }
