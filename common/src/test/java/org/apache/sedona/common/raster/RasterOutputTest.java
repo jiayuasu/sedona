@@ -262,7 +262,7 @@ public class RasterOutputTest extends RasterTestBase {
     GridCoverage2D raster = rasterFromGeoTiff(resourceFolder + "raster/test1.tiff");
     byte[] cogBytes = RasterOutputs.asCOG(raster);
     assertNotNull(cogBytes);
-    assertTrue(cogBytes.length > 0);
+    assertTrue(cogBytes.length >= 2);
     // Verify it is a valid TIFF (starts with II or MM)
     assertTrue(
         (cogBytes[0] == 'I' && cogBytes[1] == 'I') || (cogBytes[0] == 'M' && cogBytes[1] == 'M'));

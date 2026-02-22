@@ -205,12 +205,19 @@ public final class CogOptions {
       if (compression == null || compression.isEmpty()) {
         throw new IllegalArgumentException("compression must not be null or empty");
       }
+      // Preserve the original input for error reporting
+      String originalCompression = compression;
       // Case-insensitive matching: find the canonical value from the valid list
-      this.compression = matchIgnoreCase(VALID_COMPRESSION, compression);
-      if (this.compression == null) {
+      String normalizedCompression = matchIgnoreCase(VALID_COMPRESSION, originalCompression);
+      if (normalizedCompression == null) {
         throw new IllegalArgumentException(
-            "compression must be one of " + VALID_COMPRESSION + ", got: '" + compression + "'");
+            "compression must be one of "
+                + VALID_COMPRESSION
+                + ", got: '"
+                + originalCompression
+                + "'");
       }
+      this.compression = normalizedCompression;
       if (compressionQuality < 0 || compressionQuality > 1.0) {
         throw new IllegalArgumentException(
             "compressionQuality must be between 0.0 and 1.0, got: " + compressionQuality);
@@ -226,13 +233,22 @@ public final class CogOptions {
             "overviewCount must be -1 (auto), 0 (none), or positive, got: " + overviewCount);
       }
 
-      // Case-insensitive matching for resampling
-      String normalized = matchIgnoreCase(VALID_RESAMPLING, resampling);
-      if (normalized == null) {
-        throw new IllegalArgumentException(
-            "resampling must be one of " + VALID_RESAMPLING + ", got: '" + resampling + "'");
+      // Case-insensitive matching for resampling; treat null/blank as default (Nearest)
+      if (resampling == null || resampling.isEmpty()) {
+        this.resampling = "Nearest";
+      } else {
+        String originalResampling = resampling;
+        String normalizedResampling = matchIgnoreCase(VALID_RESAMPLING, originalResampling);
+        if (normalizedResampling == null) {
+          throw new IllegalArgumentException(
+              "resampling must be one of "
+                  + VALID_RESAMPLING
+                  + ", got: '"
+                  + originalResampling
+                  + "'");
+        }
+        this.resampling = normalizedResampling;
       }
-      this.resampling = normalized;
 
       return new CogOptions(this);
     }
